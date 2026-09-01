@@ -6882,6 +6882,39 @@ try {
     }
   }
 
+  // resolveEndpoint: api: as the full CXS jobs endpoint, per modes/scan.md's
+  // "API/Feed Patterns by Platform" table. Pinned separately from the generic
+  // careers_url browsing-URL shape below, since the "wday" path segment would
+  // otherwise get misparsed as the site name by that pattern.
+  {
+    const { resolveEndpoint } = await import(pathToFileURL(join(ROOT, 'providers', 'workday.mjs')).href);
+    const fullCxs = resolveEndpoint({ api: 'https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/External/jobs' });
+    const fullCxsWithQuery = resolveEndpoint({ api: 'https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/External/jobs?x=1' });
+    const browsingUrl = resolveEndpoint({ careers_url: 'https://acme.wd1.myworkdayjobs.com/External' });
+    const localePrefixed = resolveEndpoint({ careers_url: 'https://acme.wd1.myworkdayjobs.com/en-US/External' });
+    const nonWorkdayApiFallsThrough = resolveEndpoint({
+      api: 'https://example.com/api',
+      careers_url: 'https://acme.wd1.myworkdayjobs.com/External',
+    });
+    const expected = {
+      api: 'https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/External/jobs',
+      jobBase: 'https://acme.wd1.myworkdayjobs.com/External',
+      origin: 'https://acme.wd1.myworkdayjobs.com',
+    };
+    const eq = (a, b) => a?.api === b.api && a?.jobBase === b.jobBase && a?.origin === b.origin;
+    if (
+      eq(fullCxs, expected) &&
+      eq(fullCxsWithQuery, expected) &&
+      eq(browsingUrl, expected) &&
+      eq(localePrefixed, expected) &&
+      eq(nonWorkdayApiFallsThrough, expected)
+    ) {
+      pass('resolveEndpoint accepts a full CXS jobs URL in api: alongside the existing careers_url shapes');
+    } else {
+      fail(`resolveEndpoint regressed: ${JSON.stringify({ fullCxs, fullCxsWithQuery, browsingUrl, localePrefixed, nonWorkdayApiFallsThrough })}`);
+    }
+  }
+
   // The assertions above exercise the resolver in-process. --since is rejected
   // earlier than that, in main()'s argv parsing, so nothing above would catch a
   // regression there — hence the real binary. Each case fails before scan.mjs

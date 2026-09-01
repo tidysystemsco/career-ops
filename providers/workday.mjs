@@ -86,7 +86,12 @@ export function pageIsPastWindow(pageJobs, sinceMs) {
   return Math.min(...dated) < sinceMs - EARLY_STOP_MARGIN_MS;
 }
 
-function resolveEndpoint(entry) {
+/**
+ * Resolve a Workday entry's CXS API endpoint from `api:` or `careers_url`.
+ * Exported for test-all.mjs, which pins the full-CXS-URL `api:` shape below
+ * so it can't regress without the test failing.
+ */
+export function resolveEndpoint(entry) {
   // Try api: first, then careers_url (mirrors greenhouse/ashby), returning the
   // first that matches the Workday tenant pattern. This lets a branded page
   // (e.g. https://www.ptc.com/en/careers) stay as careers_url while the Workday
@@ -94,6 +99,21 @@ function resolveEndpoint(entry) {
   // a non-Workday api: value doesn't shadow a valid careers_url.
   for (const url of [entry.api, entry.careers_url]) {
     if (typeof url !== 'string' || !url) continue;
+    // `api:` is sometimes already the full CXS jobs endpoint (the documented
+    // convention in modes/scan.md's "API/Feed Patterns by Platform" table:
+    // https://{tenant}.{instance}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs).
+    // Match this shape FIRST — the generic browsing-URL pattern below would
+    // otherwise misparse "wday" (the literal path segment) as the site name.
+    const cxs = url.match(/^https:\/\/([\w-]+)\.(wd[\w-]*)\.myworkdayjobs\.com\/wday\/cxs\/[\w-]+\/([^/?#]+)\/jobs\/?(?:[?#].*)?$/);
+    if (cxs) {
+      const [, tenant, instance, site] = cxs;
+      const origin = `https://${tenant}.${instance}.myworkdayjobs.com`;
+      return {
+        api: `${origin}/wday/cxs/${tenant}/${site}/jobs`,
+        jobBase: `${origin}/${site}`,
+        origin,
+      };
+    }
     const m = url.match(/^https:\/\/([\w-]+)\.(wd[\w-]*)\.myworkdayjobs\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([^/?#]+)/);
     if (!m) continue;
     const [, tenant, instance, site] = m;
