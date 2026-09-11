@@ -109,6 +109,48 @@ ok('THE BUG: two distinct same-company roles with different URLs stay two rows',
   } finally { cleanup(env); }
 });
 
+ok('THE NEP GROUP BUG: distinct roles sharing ONE listing-page URL stay separate rows', () => {
+  const env = makeEnv();
+  try {
+    // Some ATSes (ClearCompany/hrmdirect and similar boards with no stable
+    // per-job permalinks) force every distinct opening to be captured with the
+    // SAME listing-page URL as its "source". Pass 0 used to treat that shared
+    // URL as proof of same-posting identity regardless of title, so three
+    // unrelated roles at one company silently collapsed into a single row,
+    // each addition overwriting the previous one's score/report/role.
+    const listingUrl = 'https://nepgroup.hrmdirect.com/employment/job-openings.php';
+    writeTracker(env, [
+      `| 1 | 2026-09-08 | NEP Group | Accounts Payable Specialist | 2.3/5 | Evaluated | ❌ | [1](reports/1-nep.md) | n | ${listingUrl} |`,
+    ]);
+    addTsv(env, '2-nep.tsv', ['2', '2026-09-08', 'NEP Group', 'Payroll Admin', 'Evaluated', '2.0/5', '❌', '[2](reports/2-nep.md)', 'n', listingUrl]);
+    addTsv(env, '3-nep.tsv', ['3', '2026-09-08', 'NEP Group', 'Accounts Receivable Specialist', 'Evaluated', '2.4/5', '❌', '[3](reports/3-nep.md)', 'n', listingUrl]);
+    runMerge(env);
+    const rows = trackerRows(env);
+    assert.equal(rows.length, 3, `expected 3 separate rows (one per role), got ${rows.length}`);
+    const roles = rows.map(r => r.split('|').map(s => s.trim())[4]);
+    assert.ok(roles.includes('Accounts Payable Specialist'), 'first role survived, not overwritten');
+    assert.ok(roles.includes('Payroll Admin'), 'second role got its own row');
+    assert.ok(roles.includes('Accounts Receivable Specialist'), 'third role got its own row');
+  } finally { cleanup(env); }
+});
+
+ok('a genuine re-eval keeps matching via URL when the title is a compatible retitle', () => {
+  const env = makeEnv();
+  try {
+    // The URL-identity fast path must still fire for the ordinary case it was
+    // built for: the SAME posting, same URL, employer tweaked the title.
+    const url = 'https://boards.greenhouse.io/acme/jobs/9001';
+    writeTracker(env, [
+      `| 1 | 2026-06-01 | Acme | Finance Analyst | 4.0/5 | Applied | ✅ | [1](reports/1-acme.md) | n | ${url} |`,
+    ]);
+    addTsv(env, '1-acme.tsv', ['1', '2026-06-20', 'Acme', 'Senior Finance Analyst', 'Applied', '4.2/5', '✅', '[1](reports/1-acme.md)', 're-eval', url]);
+    runMerge(env);
+    const rows = trackerRows(env);
+    assert.equal(rows.length, 1, 'compatible retitle still updates the same row via URL identity');
+    assert.ok(rows[0].includes('4.2/5'), 're-eval score written through');
+  } finally { cleanup(env); }
+});
+
 ok('a NEW row is written WITH its URL (the key must exist to ever match)', () => {
   const env = makeEnv();
   try {

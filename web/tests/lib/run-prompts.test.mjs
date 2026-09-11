@@ -166,11 +166,17 @@ test("isShellSafeCompanyName: refuses anything that could close the quote", () =
 // go red — it just silently leaves every web-evaluated job out of the URL dedup.
 // Nothing else in this repo can catch that, which is why it is asserted here.
 
-/** The example row the evaluate prompt tells the agent to append. */
+/**
+ * The example DATA row the evaluate prompt tells the agent to append — the
+ * LAST tab-containing line, not the first: the prompt now also shows a HEADER
+ * row above it (#3517, so merge-tracker resolves the row by column NAME
+ * instead of guessing an undecidable score/status pair by content), and the
+ * header line contains tabs too.
+ */
 function exampleTsvRow(prompt) {
-  const line = prompt.split("\n").find((l) => l.includes("\t"));
-  assert.ok(line, "the evaluate prompt must contain a literal tab-separated example row");
-  return line.trim().split("\t");
+  const tabLines = prompt.split("\n").filter((l) => l.includes("\t"));
+  assert.ok(tabLines.length > 0, "the evaluate prompt must contain a literal tab-separated example row");
+  return tabLines[tabLines.length - 1].trim().split("\t");
 }
 
 test("buildPrompt: the evaluate prompt's TSV row carries all 10 fields, url last", () => {
