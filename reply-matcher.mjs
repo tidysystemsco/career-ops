@@ -148,6 +148,40 @@ export function checkRoleMatchExact(text, role) {
   return false;
 }
 
+// Latin-script routing gate for the whole-word boundary rule below (#3455,
+// #3535). Deliberately includes \p{N} (digits inside titles like "Web3",
+// "K8s" must not fall through to the substring path just for carrying a
+// digit) and \p{M} (combining marks: NFD-decomposed accented text — "e" +
+// combining acute — carries the mark as a separate codepoint in the ORIGINAL
+// string, not just something toLowerCase() can introduce, e.g. Turkish
+// "İ" -> "i" + U+0307). A part is routed to the boundary-matching branch only
+// when it is ENTIRELY Latin+digit+mark — a mixed Latin+Han part like
+// "python开发工程师" fails this (correctly): it is one semantic phrase, not a
+// Latin word, and keeps the original substring behavior.
+const LATIN_WORD_RE = /^[\p{Script=Latin}\p{N}\p{M}]+$/u;
+
+// matchesOnWordBoundary (above) builds `new RegExp(..., 'iu')`, and V8
+// stack-overflows constructing a case-insensitive Unicode pattern around a
+// long enough literal — it THROWS at construction. checkCompanyMatch's call
+// site is gated by isShortName and can never reach that; a role part has no
+// such ceiling (a JD pasted into a tracker's role field, a merged CSV column),
+// so cap it and fall back to a plain substring test rather than let the throw
+// escape matchCandidates() uncaught and take reply-watch down for the whole run.
+const MAX_BOUNDARY_NEEDLE = 128;
+
+/**
+ * Whole-word boundary test for a Latin-script needle, reusing the boundary
+ * shape matchesOnWordBoundary() established for checkCompanyMatch — but the
+ * lookarounds here also exclude \p{M}: a combining mark adjacent to the match
+ * means the position is mid-grapheme, not a boundary (#3535). "datá" (data +
+ * combining acute) must not match "Data" just because the mark itself is
+ * not a letter or digit — \p{L}/\p{N} alone would call that a boundary.
+ */
+function matchesLatinWordBoundary(text, needle) {
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\p{L}\\p{N}\\p{M}])${escaped}(?![\\p{L}\\p{N}\\p{M}])`, 'iu').test(text);
+}
+
 export function checkRoleMatch(text, role) {
   if (!role || !text) return false;
 
@@ -162,6 +196,54 @@ export function checkRoleMatch(text, role) {
   // #2671, not evidence of a real match.
   const roleParts = role.split(/[\s_\\/()-]+/);
   for (const part of roleParts) {
+    if (!part) continue;
+
+    // Strip attached punctuation before deciding the script: [\s_\\/()-]+ is
+    // what roleParts was split on, so a trailing comma survives onto a part
+    // ("Director," from "Senior Director, AI Data") and a trailing ideographic
+    // period survives onto a CJK part ("工程师。"). The STRIPPED form is what
+    // decides Latin-vs-not — script routing runs BEFORE the length and
+    // generic-word gates, not after: "工程师。" strips to "工程师" (3 chars),
+    // and gating every script on that length would silently drop three-
+    // character Chinese titles (工程师, 设计师) the substring path always
+    // matched. Non-Latin parts fall through unchanged to the original
+    // raw-part behavior below; only a part whose stripped form is entirely
+    // Latin+digit+mark gets the new gates and the boundary match.
+    const stripped = part.replace(/[^\p{L}\p{N}\p{M}]+/gu, '');
+
+    if (LATIN_WORD_RE.test(stripped)) {
+      // The length and generic-word gates run on the STRIPPED form. "Recruiter,"
+      // is not in GENERIC_ROLE_WORDS; "recruiter" is — checking the raw part
+      // lets attached punctuation walk a generic word straight past the #2671
+      // protection. Likewise "AI!!" stripped to "AI" (2 chars) must not clear
+      // a gate meant to admit only words with more than three significant
+      // characters.
+      if (stripped.length <= 3) continue;
+      if (GENERIC_ROLE_WORDS.has(stripped.toLowerCase())) continue;
+
+      if (stripped.length > MAX_BOUNDARY_NEEDLE) {
+        // Pathological input (a JD pasted into a role field): building the
+        // boundary RegExp around it can stack-overflow at construction, so
+        // fall back to the plain substring test that ran before this fix.
+        if (tNorm.includes(normalizeStr(stripped))) return true;
+        continue;
+      }
+
+      // A real word-boundary match: plain substring matching alone matches
+      // "Analytic" inside "Analytics", "Data" inside "database", "Web3"
+      // inside "Web3D" (#3455) — all false positives that inflate whichever
+      // tracker row is already ahead in matchCandidates(). The lookarounds use
+      // \p{L}\p{N}\p{M} rather than \b: \b is defined on [A-Za-z0-9_], which
+      // is wrong twice over — a CJK ideograph is not \w, so \b would see a
+      // boundary INSIDE a Chinese compound word ("data工程师"), and "_" IS \w,
+      // so \b would miss a genuine "data_engineer" mention.
+      if (matchesLatinWordBoundary(text, stripped)) return true;
+      continue;
+    }
+
+    // Non-Latin (or punctuation-only) part: unchanged original behavior —
+    // gate and match on the RAW part, exactly as before this fix, so CJK,
+    // Cyrillic, Arabic, and mixed-script parts keep their substring matching.
     if (part.length > 3 && !GENERIC_ROLE_WORDS.has(part.toLowerCase()) && tNorm.includes(normalizeStr(part))) {
       return true; // partial match on a significant word
     }
@@ -415,13 +497,32 @@ export function classifyReply(cand) {
   //    rejectionKeywords) and would mis-type rejections as offers.
   const offerKeywords = [
     '录取通知书', '录用信', '录用通知', '录用', '薪资确认', '入职协议', '意向书',
-    'offer letter', 'employment agreement', 'job offer', 'congratulations on the offer', 'compensation details', 'pleased to offer'
+    'offer letter', 'employment agreement', 'job offer', 'congratulations on the offer', 'compensation details', 'pleased to offer',
+    // Common ATS/recruiter offer-template phrasing researched 2026-09-08
+    // (recruitcrm.io template library) alongside the rejection-keyword sweep below.
+    'offer you the position', 'you have been offered'
   ];
 
   // 3. Rejected keywords
   const rejectionKeywords = [
     '很遗憾', '暂不匹配', '不合适', '未能进入下一轮', '感谢您的时间', '未通过', '不再考虑', '决定不推进',
-    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward', 'position has been filled', 'role has been closed', 'unable to offer'
+    'unfortunately', 'not a match', 'not matching', 'decided not to proceed', 'will not be moving forward', 'position has been filled', 'role has been closed', 'unable to offer',
+    // "not selected for further consideration" is one of the single most common
+    // ATS-templated rejection phrases (Ashby, Greenhouse, Workday all use close
+    // variants of it) and was missing entirely — a real Kraken/Ashby rejection
+    // fell all the way through to 'Unknown' with no signal matched (2026-09-08).
+    'not selected for further consideration', 'not selected to move forward', 'not be moving forward with your application', 'pursue other candidates', 'moving forward with other candidates', 'other candidates whose qualifications',
+    // Additional common phrases researched 2026-09-08 (status.net / recruitcrm.io
+    // rejection-template surveys) to widen coverage beyond the one Kraken phrase
+    // that surfaced the original gap.
+    'unable to move forward with your application', 'no longer moving forward with hiring', 'not to move forward with your candidacy', 'selected another candidate', 'decided to move forward with another candidate',
+    "haven't been selected for the role", 'have not been selected for the role', 'unable to shortlist you', 'reject your application',
+    // "move forward with other applicants" (plural "applicants", not "candidate")
+    // is a distinct template from the "another candidate" phrase above and was
+    // missing entirely — a real Liberty Mutual rejection (2026-09-10) fell
+    // through to 'Unknown' and would have sat as 'Applied' indefinitely without
+    // a manual catch. Kept broad enough to catch both orderings.
+    'move forward with other applicants', 'other applicants whose skills and experience', 'other candidates whose skills and experience'
   ];
 
   // 4. Auto-confirmation keywords
@@ -440,7 +541,14 @@ export function classifyReply(cand) {
   // 6. Interview keywords
   const interviewKeywords = [
     '邀您面试', '邀约面试', '微信小程序面试', 'AI微信小程序', '面试形式', '面试时间', '面试时长', '安排面试', '预约面试', '首轮面试', '视频面试', '电话面试', '现场面试', '面试邀请', '面试流程', '简历通过',
-    'interview invitation', 'schedule an interview', 'scheduling link', 'ai interview', 'video interview', 'phone screen', 'onsite interview', 'final round', 'invite you to interview', 'interview request', 'interview schedule'
+    'interview invitation', 'schedule an interview', 'scheduling link', 'ai interview', 'video interview', 'phone screen', 'onsite interview', 'final round', 'invite you to interview', 'interview request', 'interview schedule',
+    // Common phrases researched 2026-09-08 (recruitcrm.io template library).
+    // Safe against the rejection keywords added the same day: e.g. 'unable to
+    // move forward with your application' literally contains 'move forward
+    // with your application', but Rejection is checked and returns BEFORE
+    // Interview ever runs, so a real 'unable to...' rejection is never
+    // reachable here — this only fires on the bare positive phrasing.
+    'second interview', 'in-person interview', 'move forward with your application'
   ];
 
   // 7. Responded keywords
