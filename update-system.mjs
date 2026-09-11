@@ -297,6 +297,18 @@ const SYSTEM_PATHS = [
   'providers/',
   'seeds/',
   'tests/',
+  // Singular test/ predates the tests/ migration above and now holds only
+  // cv-visual screenshots, baselines, and spec files -- registered as a whole
+  // directory, same convention as tests/ and test-fixtures/ below, rather
+  // than one entry per fixture file (2026-09-10 SYSTEM_PATHS coverage gap).
+  // No quote characters in this comment: extractArray() in
+  // updater-migration-tests.mjs scrapes SYSTEM_PATHS with a quote-delimited
+  // regex that cannot tell a comment from an entry, so an apostrophe or a
+  // quoted path in prose here reads as spurious array elements (found this
+  // the hard way -- do not reintroduce one).
+  'test/',
+  'test-salary-filter.mjs',
+  'test-trust-validator.mjs',
   'user-agent.mjs',
   'doctor.mjs',
   'jsonc-parse.mjs',
@@ -359,6 +371,8 @@ const SYSTEM_PATHS = [
   'reply-watch.mjs',
   'paste-reply.mjs',
   'paste-reply-tests.mjs',
+  'gmail-import-replies.mjs',
+  'gmail-import-replies-tests.mjs',
   'outcome.mjs',
   'batch/batch-prompt.md',
   'batch/batch-runner.sh',

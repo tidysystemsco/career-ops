@@ -46,7 +46,15 @@ try {
 try {
   const cwd = process.cwd();
   const toplevel = execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' }).trim();
-  if (toplevel !== cwd) {
+  // git always prints the toplevel with forward slashes, even on Windows,
+  // where process.cwd() returns backslashes — comparing the two raw strings
+  // is therefore NEVER equal on Windows, so this branch fired unconditionally
+  // there. Found the hard way: running this file directly (not through
+  // test-all.mjs's throwaway copy) from the REAL checkout root on Windows
+  // still took the "not a toplevel yet" branch, ran `git add` + `git commit`
+  // against the actual repository, and landed real "test fixture" commits on
+  // whatever branch was checked out. Normalize separators before comparing.
+  if (toplevel.replace(/\\/g, '/') !== cwd.replace(/\\/g, '/')) {
     execFileSync('git', ['init', '-q'], { cwd });
     execFileSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd });
     execFileSync('git', ['config', 'user.name', 'career-ops tests'], { cwd });
@@ -64,7 +72,16 @@ function extractArray(name) {
     return [];
   }
   pass(`${name} array exists`);
-  return Array.from(match[1].matchAll(/['"]([^'"]+)['"]/g), (entry) => entry[1]);
+  // Strip `//` line comments before hunting for quoted entries. Found the
+  // hard way: this array carries explanatory comments next to its entries,
+  // and neither SYSTEM_PATHS nor BOOTSTRAP_PATHS ever holds a path containing
+  // `//`, so removing everything from `//` to end-of-line is safe here and
+  // stops a comment's own apostrophe or quoted mention of a path (e.g. "the
+  // 'tests/' migration") from being scraped as a spurious array element —
+  // which, once it shifts the quote parity, cascades into every entry after
+  // it being misread too.
+  const withoutComments = match[1].replace(/\/\/[^\n]*/g, '');
+  return Array.from(withoutComments.matchAll(/['"]([^'"]+)['"]/g), (entry) => entry[1]);
 }
 
 const systemPaths = extractArray('SYSTEM_PATHS');

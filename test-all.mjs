@@ -57,6 +57,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import * as yaml from 'js-yaml';
 import { pass, fail, warn, run, lastRunFailure, formatRunFailure, fileExists, finish, ROOT, QUICK, NODE, DEFAULT_SCRIPT_TIMEOUT_MS, getBash, toBashPath, hermeticGitEnv } from './tests/helpers.mjs';
 import { flagValue, hasFlag } from './lib/cli-flags.mjs';
+import { collectMjsFiles, isNestedCheckout, isUnderNestedCheckout } from './lib/mjs-files.mjs';
 
 /**
  * Read a repo-relative text file as UTF-8.
@@ -111,7 +112,15 @@ function discoverTests(dir) {
   const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   for (const entry of entries) {
     const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...discoverTests(full));
+    if (entry.isDirectory()) {
+      // A worktree or nested clone under tests/ (marked by its own .git file
+      // or directory) is somebody else's checkout, not a suite of ours — at
+      // whatever commit it happens to sit on. Without this guard its suites
+      // get discovered AND EXECUTED by this very runner, which can print a
+      // stale checkout's "All tests passed" for a commit nobody wrote (#3762).
+      if (isNestedCheckout(full)) continue;
+      out.push(...discoverTests(full));
+    }
     else if (entry.name.endsWith('.test.mjs')) out.push(full);
   }
   return out;
@@ -222,7 +231,12 @@ console.log('\n🧪 career-ops test suite\n');
 
 console.log('1. Syntax checks');
 
-const mjsFiles = readdirSync(ROOT).filter(f => f.endsWith('.mjs'));
+// The one shared definition of "every .mjs file in this repository" (see
+// lib/mjs-files.mjs's own docstring): a root-only readdirSync used to cover
+// 121 of ~575 files here, silently narrowing every time a file moved into a
+// subdirectory. Paths are root-relative and forward-slash-normalized for
+// display and for the `node --check` argv below.
+const mjsFiles = collectMjsFiles(ROOT).map(f => f.slice(ROOT.length + 1).replace(/\\/g, '/'));
 
 // `node --check` parses a file and exits; it runs no user code, touches no
 // shared state, and its result depends on nothing but that one file. Spawning
@@ -318,13 +332,13 @@ const scripts = [
   { name: 'contacts.mjs --self-test', expectExit: 0 },
   { name: 'company-funded.mjs --self-test', expectExit: 0 },
   { name: 'invite-match.mjs --self-test', expectExit: 0 },
-  { name: 'invite-match.test.mjs', expectExit: 0 },
   { name: 'tracker-sync-check.mjs --self-test', expectExit: 0 },
   { name: 'updater-migration-tests.mjs', expectExit: 0 },
   { name: 'tracker-columns-tests.mjs', expectExit: 0 },
   { name: 'agent-inbox-tests.mjs', expectExit: 0 },
   { name: 'followup-seed-tests.mjs', expectExit: 0 },
   { name: 'paste-reply-tests.mjs', expectExit: 0 },
+  { name: 'gmail-import-replies-tests.mjs', expectExit: 0 },
   { name: 'set-status-tests.mjs', expectExit: 0 },
   // The one script in this list that genuinely needs longer than the shared
   // budget. It spawns competing writer processes for 27 contention cases, and
@@ -344,15 +358,17 @@ const scripts = [
   // Root-level standalone suites shipped in SYSTEM_PATHS but previously never
   // executed by CI (issue #1624). All are fast (<0.5s each), so they run in
   // both quick and full mode like their siblings above.
+  //
+  // The seven *.test.mjs entries this block used to list here (detect-reposts,
+  // discover-ats, followup-cadence, process-quality, company-history, contacts,
+  // reply-matcher) migrated to tests/ (each with its own, later-fixed rewrite —
+  // see git history), which runDiscovered() already picks up unconditionally at
+  // the bottom of this file. The root copies were stale, superseded duplicates
+  // that failed tests/core-test-layout.test.mjs's "every suite lives where a
+  // runner can find it" check; removed 2026-09-10 rather than re-pointed here,
+  // since re-pointing would just run the same suite twice.
   { name: 'test-trust-validator.mjs', expectExit: 0 },
   { name: 'test-salary-filter.mjs', expectExit: 0 },
-  { name: 'detect-reposts.test.mjs', expectExit: 0 },
-  { name: 'discover-ats.test.mjs', expectExit: 0 },
-  { name: 'followup-cadence.test.mjs', expectExit: 0 },
-  { name: 'process-quality.test.mjs', expectExit: 0 },
-  { name: 'company-history.test.mjs', expectExit: 0 },
-  { name: 'contacts.test.mjs', expectExit: 0 },
-  { name: 'reply-matcher.test.mjs', expectExit: 0 },
   { name: 'validate-portals.mjs --file templates/portals.example.yml', expectExit: 0 },
   { name: 'validate-system-paths-coverage.mjs --self-test', expectExit: 0 },
   // The bare coverage run is NOT here on purpose: this section executes each
@@ -392,6 +408,11 @@ try {
     if (dirname(src) === ROOT && exclude.includes(name)) return;
     const stat = statSync(src);
     if (stat.isDirectory()) {
+      // Same guard as discoverTests: a worktree or nested clone anywhere below
+      // ROOT carries its own .git marker and is somebody else's source tree,
+      // not part of this copy. Excluded from the ROOT check itself — ROOT's
+      // own .git is what makes it the repository this whole copy is of (#3762).
+      if (src !== ROOT && isNestedCheckout(src)) return;
       mkdirSync(dest, { recursive: true });
       for (const entry of readdirSync(src)) {
         copyDirSync(join(src, entry), join(dest, entry), exclude);
@@ -1984,7 +2005,17 @@ if (generatePdfScript.includes('--allow-reorder')) {
 try {
   const { validateCvSectionOrder } = await import(pathToFileURL(join(ROOT, 'generate-pdf.mjs')).href);
   const cvMarkdown = '# Education\ntext\n# Work Experience\ntext\n# Projects\ntext';
-  const reorderedHtml = '<div class="section-title">Projects</div><div class="section-title">Education</div>';
+  // Education -> Projects -> Work Experience diverges from BOTH orderings
+  // validateCvSectionOrder accepts: cv.md's own (Education, Experience,
+  // Projects) AND modes/pdf.md's canonical tailoring order (..., Experience,
+  // Projects, Education, ...), where Projects always precedes Education. An
+  // earlier version of this fixture (Projects -> Education) accidentally
+  // MATCHED the canonical order, so the function correctly did not throw and
+  // this test failed for the wrong reason — the fixture, not the function,
+  // needed a genuine divergence from both accepted orderings.
+  const reorderedHtml = '<div class="section-title">Education</div>'
+    + '<div class="section-title">Projects</div>'
+    + '<div class="section-title">Work Experience</div>';
 
   let threw = false;
   try {
@@ -2119,6 +2150,12 @@ try {
   try {
     await renderHtmlToPdf('<html><body>PRIVATE_CV_MARKER</body></html>', join(fixtureRoot, 'cv.pdf'), {
       baseDir: fixtureRoot,
+      // The launch-failure test above never reaches this check — launchBrowser
+      // throws before renderInPage runs at all. Here launchBrowser succeeds,
+      // so renderInPage's own outside-the-workspace guard fires first against
+      // outputPath (a system temp dir, not the real output/ tree) unless the
+      // fixture's own tmp dir is declared as the workspace for this call.
+      workspaceRoot: fixtureRoot,
       launchBrowser: async () => ({
         newPage: async () => { throw pageError; },
         close: async () => { closeCalls += 1; },
@@ -2340,7 +2377,7 @@ if (
   fail('batch final JSON does not require typed, escaped serialization');
 }
 
-const batchTrackerStep = batchPrompt.match(/### Step 5 \u2014 Tracker TSV Line[\s\S]*?### Step 6 \u2014 Final JSON/)?.[0] ?? '';
+const batchTrackerStep = batchPrompt.match(/### Step 5 \u2014 Tracker TSV Row[\s\S]*?### Step 6 \u2014 Final JSON/)?.[0] ?? '';
 if (/\{\{REPORT_NUM\}\}\\t\{\{DATE\}\}/.test(batchTrackerStep) && !/Compute `\{next_num\}`/.test(batchTrackerStep)) {
   pass('batch workers use the coordinator-reserved tracker number');
 } else {
@@ -2533,7 +2570,13 @@ if (shared.includes('_profile.md')) {
   // alone can't catch.
   const writingRefRe = /_shared\.md[^.\n]{0,40}(Voice DNA|Writing Style|Professional Writing)|(Voice DNA|Writing Style|Professional Writing)[^.\n]{0,40}_shared\.md/;
   const stale = [];
-  for (const f of readdirSync(join(ROOT, 'modes'), { recursive: true }).filter(p => typeof p === 'string' && p.endsWith('.md'))) {
+  const modesRoot = join(ROOT, 'modes');
+  for (const f of readdirSync(modesRoot, { recursive: true }).filter(p => typeof p === 'string' && p.endsWith('.md'))) {
+    // This expands the whole modes/ subtree in one call, so a worktree or
+    // nested clone anywhere under it (its own .git marker) comes back as
+    // though it were this checkout's own file — filter the result rather than
+    // guard the call, the same fix isUnderNestedCheckout exists for (#3762).
+    if (isUnderNestedCheckout(modesRoot, f)) continue;
     const src = readFile(`modes/${f.split(/[\\/]/).join('/')}`);
     if (writingRefRe.test(src)) stale.push(f);
   }
@@ -2610,7 +2653,7 @@ const markersAppearInOrder = (text, markers) => {
   return true;
 };
 if (
-  shared.includes('| _custom.md | `modes/_custom.md` (if exists) |') &&
+  shared.includes('| _custom.md | `{DATA_ROOT}/modes/_custom.md` (if exists) |') &&
   markersAppearInOrder(shared, [
     'Read _profile.md AFTER this file',
     'Read _custom.md (if it exists) AFTER _profile.md',
@@ -4180,8 +4223,16 @@ try {
   try {
     mkdirSync(join(fixtureRoot, 'data'), { recursive: true });
     process.chdir(fixtureRoot);
-    await appendToPipeline([{ url: 'https://jobs.example.com/1', company: 'Acme', title: 'Engineer' }]);
-    const pipeline = readFileSync(join(fixtureRoot, 'data', 'pipeline.md'), 'utf-8');
+    // PIPELINE_PATH is a CAREER_OPS_ROOT-anchored module constant (fixed at
+    // import time), not cwd-relative — chdir'ing here no longer retargets it,
+    // per scan.mjs's own comment on loadSeenUrls. Pass the fixture path
+    // explicitly, the parameter the function exists for.
+    const fixturePipelinePath = join(fixtureRoot, 'data', 'pipeline.md');
+    await appendToPipeline(
+      [{ url: 'https://jobs.example.com/1', company: 'Acme', title: 'Engineer' }],
+      { pipelinePath: fixturePipelinePath },
+    );
+    const pipeline = readFileSync(fixturePipelinePath, 'utf-8');
     if (
       pipeline.includes('# Pipeline') &&
       pipeline.includes('## Pending') &&
@@ -4220,7 +4271,15 @@ try {
     process.env.CAREER_OPS_PIPELINE_LOCK_RETRY_MS = '20';
     const held = await acquirePipelineLock(pipelinePath);
     try {
-      await appendToPipeline([{ url: 'https://jobs.example.com/1', company: 'Acme', title: 'Engineer' }]);
+      // Same anchored-constant issue as the fresh-install test above: without
+      // an explicit pipelinePath, appendToPipeline() would race against a
+      // DIFFERENT file (the real project's PIPELINE_PATH) than the one just
+      // locked, and "proceeded" would be true for the wrong reason — it isn't
+      // sharing the lock, it simply isn't looking at the same file.
+      await appendToPipeline(
+        [{ url: 'https://jobs.example.com/1', company: 'Acme', title: 'Engineer' }],
+        { pipelinePath },
+      );
       fail('appendToPipeline() proceeded while another holder had the pipeline lock — no shared exclusion');
     } catch (e) {
       if (e instanceof LockTimeoutError) pass('appendToPipeline() shares pipeline-lock.mjs — correctly blocked on a lock held elsewhere (LockTimeoutError)');
@@ -4296,7 +4355,11 @@ try {
     );
     process.chdir(fixtureRoot);
     const { loadSeenUrls } = await import(pathToFileURL(join(ROOT, 'scan.mjs')).href);
-    const { seen } = loadSeenUrls();
+    // SCAN_HISTORY_PATH is a CAREER_OPS_ROOT-anchored module constant, not
+    // cwd-relative (see scan.mjs's comment on loadSeenUrls) — chdir'ing here
+    // does not retarget it, so the fixture's own scan-history.tsv must be
+    // passed explicitly or loadSeenUrls silently reads the real project's file.
+    const { seen } = loadSeenUrls({}, { scanHistoryPath: join(fixtureRoot, 'data', 'scan-history.tsv') });
     if (seen.has(normalizeUrlForDedup(bare)) && seen.has(normalizeUrlForDedup(withLang))) {
       pass('scan.mjs loadSeenUrls dedups a history row against a cosmetic query-suffix variant (#2065)');
     } else {
@@ -8399,6 +8462,10 @@ try {
       // ...and tracker-utils imports the shared lock-contention helpers
       // (#2777 fix), so the fixture carries that import too.
       copyFileSync(join(ROOT, 'pipeline-lock.mjs'), join(e2eTmp, 'pipeline-lock.mjs'));
+      // ...and tracker-utils now imports canonicalizeTrackerPath from
+      // path-resolver.mjs (the CAREER_OPS_ROOT resolver), so the fixture
+      // carries that too — no further local imports of its own (2026-09-10).
+      copyFileSync(join(ROOT, 'path-resolver.mjs'), join(e2eTmp, 'path-resolver.mjs'));
       // ...and followup-cadence now resolves "today" as the LOCAL calendar day
       // via lib/local-today.mjs (#3070), so the fixture carries that too.
       mkdirSync(join(e2eTmp, 'lib'), { recursive: true });
@@ -8406,6 +8473,9 @@ try {
       // ...and followup-cadence now delegates flag validation to the shared
       // lib/cli-flags.mjs helper, so the fixture carries that too.
       copyFileSync(join(ROOT, 'lib', 'cli-flags.mjs'), join(e2eTmp, 'lib', 'cli-flags.mjs'));
+      // ...and followup-cadence now uses the shared isMainModule() CLI guard
+      // (#3170), so the fixture carries that too (2026-09-10).
+      copyFileSync(join(ROOT, 'lib', 'is-main-module.mjs'), join(e2eTmp, 'lib', 'is-main-module.mjs'));
       mkdirSync(join(e2eTmp, 'templates'), { recursive: true });
       copyFileSync(join(ROOT, 'templates', 'states.yml'), join(e2eTmp, 'templates', 'states.yml'));
       // 'junction' on Windows, not 'dir': a directory symlink needs
@@ -14476,8 +14546,8 @@ try {
   // Bundled plugins: discovery + import coverage + static deny-list + firewall.
   const bundled = discoverPlugins([join(ROOT, 'plugins')]);
   const ids = bundled.map(p => p.id).sort().join(',');
-  if (ids === 'apify,gmail,notion') pass('all 3 bundled reference plugins discovered (apify, gmail, notion)');
-  else fail(`bundled plugins = "${ids}" (expected apify,gmail,notion)`);
+  if (ids === 'apify,gmail,h1b-sponsor,notion') pass('all 4 bundled reference plugins discovered (apify, gmail, h1b-sponsor, notion)');
+  else fail(`bundled plugins = "${ids}" (expected apify,gmail,h1b-sponsor,notion)`);
 
   let importOk = bundled.length > 0;
   for (const p of bundled) {
@@ -15943,9 +16013,9 @@ try {
 
 console.log('\n59. CV template resolver (cv-templates.mjs)');
 {
-  const unit = run(NODE, ['--test', 'test/cv-templates.test.mjs']);
+  const unit = run(NODE, ['--test', 'tests/cv-templates.test.mjs']);
   if (unit !== null) pass('cv-templates.mjs unit tests pass');
-  else fail('cv-templates.mjs unit tests failed (run: node --test test/cv-templates.test.mjs)');
+  else fail('cv-templates.mjs unit tests failed (run: node --test tests/cv-templates.test.mjs)');
 
   const listed = run(NODE, ['cv-templates.mjs', 'list', 'cv']);
   if (listed && listed.includes('"name"')) pass('CLI: list cv returns JSON');
@@ -15961,9 +16031,9 @@ console.log('\n59. CV template resolver (cv-templates.mjs)');
 
 console.log('\n59b. Pipeline lock (pipeline-lock.mjs)');
 {
-  const unit = run(NODE, ['--test', 'test/pipeline-lock.test.mjs']);
+  const unit = run(NODE, ['--test', 'tests/pipeline-lock.test.mjs']);
   if (unit !== null) pass('pipeline-lock unit tests pass');
-  else fail('pipeline-lock unit tests failed (run: node --test test/pipeline-lock.test.mjs)');
+  else fail('pipeline-lock unit tests failed (run: node --test tests/pipeline-lock.test.mjs)');
 }
 
 console.log('\n59c. The exported script budget matches the one run() enforces');
@@ -15998,9 +16068,9 @@ console.log('\n59c. The exported script budget matches the one run() enforces');
 
 console.log('\n60. Cover-letter template resolver (generate-cover-letter.mjs)');
 {
-  const unit = run(NODE, ['--test', 'test/cover-resolver.test.mjs']);
+  const unit = run(NODE, ['--test', 'tests/cover-resolver.test.mjs']);
   if (unit !== null) pass('cover-resolver unit tests pass');
-  else fail('cover-resolver unit tests failed (run: node --test test/cover-resolver.test.mjs)');
+  else fail('cover-resolver unit tests failed (run: node --test tests/cover-resolver.test.mjs)');
 }
 
 // ── 61. INTERVIEW-PREP URL ENTRY (#1816) ────────────────────────

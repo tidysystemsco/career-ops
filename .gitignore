@@ -204,3 +204,15 @@ follow-ups.md
 *.db
 *.db-wal
 *.db-shm
+
+# Re-state the test-fixtures re-inclusion here, AFTER the applications.md/
+# follow-ups.md rules above (2026-09-10). Gitignore is last-match-wins per
+# pattern; the original `!test-fixtures/**` sits at the TOP of this file (see
+# the comment above applications.md claiming it wins as "a later pattern") but
+# is actually EARLIER than those two unanchored patterns, so they were the ones
+# winning — silently re-ignoring every test-fixtures/**/{applications,follow-ups}.md
+# fixture and making `git add` refuse to commit them. Left the original rule in
+# place (its own comment is now simply wrong about ordering, not about intent)
+# and added the corrected one here instead of moving it, so this stays a
+# same-direction fix rather than a reorder of a system-owned block.
+!test-fixtures/**
