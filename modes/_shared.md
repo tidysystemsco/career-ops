@@ -85,6 +85,8 @@ The evaluation scores five dimensions, integrated into one global score of 1-5. 
 | Red flags | Blockers, warnings (negative adjustments) |
 | **Global** | Holistic judgment integrating the five dimensions above (no arithmetic formula) |
 
+**How to score "Match con CV" against a Hard Requirement (2026-09-10):** `modes/oferta.md` Block B and `batch/batch-prompt.md` Block B both run a Hard Requirement Check — an explicit years-of-domain-experience minimum, a named required degree field with no "or equivalent" escape hatch, or a named required credential/pedigree, each stated as required rather than preferred. An unmet Hard Requirement caps this dimension at ≤3/5 regardless of how strong the rest of the match is (mirroring the cap `modes/triage.md`'s Step 2.5 already applies at first pass), and 2+ unmet Hard Requirements additionally cap the Global score at ≤3.9/5. This exists because these specific gates are commonly enforced by an ATS screening question with same-day automated rejection and no human review — a different risk category than an ordinary soft skill gap, which a holistic Global score should not average away.
+
 **Score interpretation:**
 - 4.5+ → Strong match, recommend applying immediately
 - 4.0-4.4 → Good match, worth applying

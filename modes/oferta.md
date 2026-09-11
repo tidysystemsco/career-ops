@@ -41,7 +41,11 @@ If deeper company research is useful, recommend running `/career-ops deep` separ
 
 ## Step 0 — Archetype Detection
 
-Classify the job into one of the 6 archetypes (see `_shared.md`). If it is a hybrid, indicate the 2 closest ones. This determines:
+**If `modes/_profile.md` defines its own archetype table, use it — it is the user's customization and overrides `_shared.md`'s generic default (see `_shared.md`'s own precedence rule: "Read _profile.md AFTER this file. User customizations in _profile.md override defaults here.").** Only fall back to `_shared.md`'s 6-archetype table when `_profile.md` has none.
+
+Classify the job into exactly one archetype from that table, using its **exact name as written** (never a paraphrase, a "closest fit" description, or a freeform "no match" string) — this keeps `analyze-patterns.mjs`'s archetype-level conversion analysis usable; a report that writes an ad-hoc label instead of the canonical name is invisible to that aggregation. If it is a genuine hybrid, name the 2 closest canonical archetypes exactly, in `A / B` form. If truly none of the table's archetypes fit even loosely, say so plainly ("No archetype match") rather than inventing a new label — this is itself a useful signal (portfolio gap or scope-creep in what's being evaluated), not a formatting failure.
+
+This determines:
 - Which proof points to prioritize in block B
 - How to rewrite the summary in block E
 - Which STAR stories to prepare in block F
@@ -106,8 +110,19 @@ Read `cv.md`. Create a table with each JD requirement mapped to exact lines in t
 - If Agentic → prioritize multi-agent, HITL, orchestration
 - If Transformation → prioritize change management, adoption, scaling
 
+**Verify before declaring any gap (mandatory, 2026-09-10):** search `cv.md`'s full text — not memory, not the Professional Summary alone — for the JD term and its close synonyms before writing that it is absent. A report once claimed "no explicit mentorship role in cv.md" when cv.md held an exact bullet answering it ("training new specialists joining the team"); that false gap then justified deleting real, true content from the tailored CV during Block E/`pdf.md` tailoring. A gap is only real once the search has actually come up empty — never write one from recall.
+
+**Hard Requirement Check (mandatory, before the general Gaps pass, 2026-09-10):** scan the JD's Required/Minimum Qualifications section (never Preferred/Nice-to-have) for three patterns that behave differently from an ordinary skill gap — large-employer ATS systems (Workday especially) commonly hard-gate on exactly these via an explicit screening question, often triggering same-day automated rejection with no human review ever happening:
+1. **Explicit years-of-domain-experience minimum** — "X years of {specific domain/tool/industry}" stated as required, not preferred.
+2. **Named required degree field** — "Bachelor's degree in {field}" with no "or equivalent experience"/"or equivalent combination of education and experience" escape hatch in the same requirement.
+3. **Named required credential or pedigree** — a specific certification, license, or firm pedigree stated as required (e.g. "CPA required," "Big 4 or national-firm audit experience," "must hold an active {license}").
+
+For each one found, cross-check `cv.md` (the same full-text search required above) for a matching or clearly analogous credential. If the JD itself supplies an escape hatch the candidate genuinely satisfies ("or equivalent," and the candidate's tenure/credentials plausibly qualify), say so explicitly and do not mark it unmet. Otherwise, label it **Hard Requirement — UNMET** in the Gaps section below, quoting the JD line verbatim, and carry it into the Machine Summary's `hard_stops`.
+
+**Scoring impact:** an unmet Hard Requirement caps the CV-match dimension at ≤3/5 — the same cap `modes/triage.md`'s Step 2.5 already applies at first pass, so a posting can't lose that cap at triage only to have it silently forgiven here. Two or more unmet Hard Requirements additionally cap the Global score at ≤3.9/5 (the "apply only if specific reason" band): failing 2+ explicit gates is a different risk category than one soft gap offset by strong adjacent experience, and the score should say so rather than average it away.
+
 **Gaps** section with mitigation strategy for each. For each gap:
-1. Is it a hard blocker or a nice-to-have?
+1. Is it a hard blocker or a nice-to-have? (Hard Requirements from the check above are always hard blockers — never downgrade one to nice-to-have.)
 2. Can the candidate demonstrate adjacent experience?
 3. Is there a portfolio project that covers this gap?
 4. Concrete mitigation plan (phrase for cover letter, quick project, etc.)

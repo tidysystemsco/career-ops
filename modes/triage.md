@@ -52,6 +52,39 @@ TRIAGE: SKIP | {Company} | {Role or "Unknown"} | 0/5 | Posting inaccessible or e
 Scan JD text for the Hard DQ Criteria listed in `_brief.md`. If any hit, you
 already know the score is ≤ 2.5. Note the DQ reason and skip step 3.
 
+### 2.5. Named-Required-Skill Gap check (takes 60 seconds — do not skip)
+
+**This step exists because triage was found, 2026-09-10, to systematically
+over-score postings whose JD names a specific Required qualification the
+candidate doesn't have** — 8 of 10 postings that triaged ≥4.5 dropped below the
+apply threshold on full evaluation once each JD's own "Required" list was
+checked line-by-line against the candidate's actual background (SOX/COSO,
+Lean/Six Sigma certification, credit-risk modeling, instructional-design/LMS
+tooling, healthcare-claims domain — all stated as Required, none echoed
+anywhere in `_brief.md`, all invisible to a title/archetype-level read). The
+"CV match estimate" dimension below asks "does the good stuff overlap?" — it
+never asks "does the JD demand something specific that isn't there?" This step
+closes that gap without reading anything beyond the JD you already fetched and
+`_brief.md` you already have open.
+
+Find the JD's Required/Must-Have qualifications list (however labeled —
+"Required," "Must Have," "Minimum Qualifications," "What You'll Need," a
+bullet list under "Requirements"). For each item on it, check whether it has
+any plausible counterpart in `_brief.md`'s Proof Points or Archetype rows —
+not a loose "sounds finance-y" match, a real one (a named system/methodology/
+certification/domain the candidate has actually touched). Count the items with
+**zero** plausible counterpart as **named-required gaps**.
+
+- 0 gaps: no adjustment.
+- 1 gap: −0.5.
+- 2 gaps: −1.0.
+- 3+ gaps: −1.5 (cap here — don't let this step alone drag a role to a Hard DQ;
+  that's what step 2 is for).
+
+Note each gap by name in the final `{reason}` field if it drives the verdict —
+"Required: SOX/COSO, no cv.md support" is more useful downstream than a bare
+low score.
+
 ### 3. Quick score
 Assess five dimensions. 1–2 sentences per dimension — no prose, no headers.
 (Weights below are defaults; if `_brief.md` defines its own dimension weights,
@@ -67,16 +100,18 @@ from title/company/location. Score 1–5.
 **Location (weight 25%):** Score per the Location Scoring rules in `_brief.md`.
 Flag high-travel or relocation risk explicitly.
 
-**CV match estimate (weight 15%):** Do the proof points in `_brief.md` map
+**CV match estimate (weight 20%):** Do the proof points in `_brief.md` map
 directly to JD requirements? Strong overlap = 4–5. Partial = 3. No match = 1–2.
+A role carrying 2+ named-required gaps (step 2.5) cannot score above 3 here,
+regardless of how well the title/archetype otherwise reads.
 
 **Red flags (adjustment):** Apply the Soft Red Flags from `_brief.md` at −0.5 each.
 Hard DQs override to ≤2.5.
 
 **Global score** = (archetype × 0.30) + (comp × 0.25) + (location × 0.25) +
-(cv_match × 0.15) + red_flag_adjustment. Round to nearest 0.1 — matching the
-`X.X/5` scores the tracker and reports already carry, and the 0.1 granularity the
-MARGINAL band below depends on.
+(cv_match × 0.20) + red_flag_adjustment + named_required_gap_adjustment (step 2.5).
+Round to nearest 0.1 — matching the `X.X/5` scores the tracker and reports
+already carry, and the 0.1 granularity the MARGINAL band below depends on.
 
 ### 4. Verdict
 | Score | Verdict |

@@ -37,7 +37,12 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
 11. Select top 3-4 most relevant projects for the job. If `cv.md` carries an Awards / Honors section, populate `awards[]` with the entries that support this role — for an early-career candidate a contest medal or dean's list often outranks a thin project. Omit the key when there is nothing to list and the section disappears entirely; never invent an award to fill it
 12. Reorder experience bullets by JD relevance and by the risk map: strongest matching evidence first
 13. Build competency grid from JD requirements (6-8 keyword phrases), prioritizing `existing` and `supportedByResume` skills from Step 4 — never a `gap` skill
-14. Inject keywords naturally into existing achievements (NEVER invent)
+14. **Mirror JD vocabulary into the CV itself, checked, not assumed (2026-09-10).** A rejection-content audit found the opposite pattern shipping repeatedly: a JD's single most-repeated term ("payroll") appeared zero times anywhere in the sent CV while the cover letter did all the mirroring — backwards for ATS, since automated resume screens weight the CV far more heavily than a cover letter and some don't parse the letter at all. Do this as an explicit, checked pass, not a one-line reminder:
+    1. Take the JD's top 8-10 literal terms from Step 3 (title words, named tools, industry vocabulary — exact phrasing, not a paraphrase) and the `existing`/`supportedByResume` buckets from Step 4's `jd-skill-gap.mjs` classification.
+    2. For each term, check whether it appears **verbatim** anywhere in the CV draft built so far (Summary, Skills/competency grid, or a Work Experience bullet) — not "a synonym is present," the literal string.
+    3. For any `existing` or `supportedByResume` term absent verbatim: find a real, cv.md-grounded bullet or Skills entry that can honestly carry the JD's exact wording, and reword it in — the Republic Services case ("payroll") and Kraken case ("journal entries", where cv.md already had "posting accurate entries to the general ledger") are the pattern this fixes. Prefer Work Experience bullets and the Skills/competency grid over the Summary alone: those are what an ATS keyword-match weighs hardest.
+    4. Never inject a `gap` term (Step 4) into the CV — a term with no cv.md backing stays a cover-letter/interview conversation, never a CV claim.
+    5. Report the result in Step 22's keyword-coverage line: which top JD terms now appear verbatim in the CV, and which don't (naming why — genuine gap, or JD-specific product name with no honest analog).
 15. Apply the six-second clarity gate from `modes/heuristics/recruiter-side.md`: top third must make target role, strongest fit, and proof obvious
 16. Read `name` from `config/profile.yml` → normalize to kebab-case lowercase (e.g. "John Doe" → "john-doe") → `{candidate}`
 17. Build the render payload (see the **JSON Input Schema** below) from the tailored content — emit compact structured JSON, **not** full HTML markup — and write it to `/tmp/cv-{candidate}-{company}.json`
@@ -56,7 +61,7 @@ Run `npm run jd:similarity -- {bundle-root}/jd/current.md {bundle-root}/jd/previ
     - The rendered PDF has a two-page warning threshold by default. `--max-pages=N` accepts a positive integer; pass `--max-pages=1` when the user or market prefers a one-page CV.
     - If the rendered PDF exceeds its threshold, generation warns loudly with the actual and allowed page counts plus trimming guidance, then reports and indexes the unchanged PDF so existing longer-CV flows keep working.
     - Pass `--strict-pages` only when the user or market requires a hard limit. Strict overflow leaves the draft available for inspection but does not report or index it as successful; trim lower-priority content and rerun.
-22. Report: PDF path, number of pages, keyword coverage %, and any skill gaps from Step 4 still unaddressed
+22. Report: PDF path, number of pages, keyword coverage (from Step 14.5 — which of the JD's top 8-10 terms now appear verbatim in the CV, and which don't, with a reason for each miss), and any skill gaps from Step 4 still unaddressed
 
 ## ATS Rules (clean parsing)
 
