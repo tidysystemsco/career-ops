@@ -465,6 +465,20 @@ export function matchCandidates(candidates, apps, followups = []) {
   return results;
 }
 
+// Which Gmail label CATEGORY (a key into a user's own config/profile.yml
+// `gmail_labels` map, never a raw label id — label ids are per-account) an
+// email of this classifyReply() type should be filed under, for a consumer
+// that wants to auto-label a classified message. Types absent from this map
+// (Need Action, Responded, Noise, Unknown) are deliberately left for manual
+// triage rather than auto-filed anywhere.
+export const GMAIL_LABEL_CATEGORY_FOR_TYPE = {
+  'Account Creation': 'account_creation',
+  'Auto-confirmation': 'applications',
+  'Interview': 'interviews_followups',
+  'Offer': 'interviews_followups',
+  'Rejected': 'rejections',
+};
+
 export function classifyReply(cand) {
   const subject = cand.subject || '';
   const body = cand.body_snippet || '';
@@ -485,6 +499,29 @@ export function classifyReply(cand) {
     }
     return found;
   };
+
+  // 0. Account Creation keywords (candidate-portal signup/verification mail —
+  // "verify your candidate account", "confirm your identity" OTP codes,
+  // password resets, forgotten-username notices, "welcome/thanks for
+  // creating account"). Checked FIRST and narrowly: these are transactional
+  // account-lifecycle emails from an ATS, not a reply about any specific
+  // application, so they must never fall through to Auto-confirmation just
+  // because the surrounding text also happens to mention "application".
+  const accountCreationKeywords = [
+    'verify your candidate account', 'confirm your candidate account', 'activate your candidate account',
+    'confirm your identity', 'confirm your email address and complete setup',
+    'reset your password for your candidate account', 'forgot your username',
+    'thanks for creating account', 'thank you for creating your account', 'welcome / thanks for creating account',
+    'your one-time pass code', 'one-time passcode', 'one-time verification code',
+  ];
+  const isAccountCreation = check(accountCreationKeywords);
+  if (isAccountCreation) {
+    return {
+      type: 'Account Creation',
+      evidence: Array.from(new Set(evidence)),
+      suggestedTrackerUpdate: 'none'
+    };
+  }
 
   // 1. Noise keywords (checked first to separate alerts/leads from actual interviews)
   const noiseKeywords = [

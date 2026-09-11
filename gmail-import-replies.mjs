@@ -6,8 +6,8 @@
  * `paste-reply.mjs` documents as the planned counterpart to its manual path).
  *
  * reply-watch.mjs already classifies employer replies (Interview / Responded /
- * Need Action / Rejected / Offer / Auto-confirmation / Noise / Unknown),
- * matches them to tracker rows, and prompts before touching
+ * Need Action / Rejected / Offer / Auto-confirmation / Account Creation /
+ * Noise / Unknown), matches them to tracker rows, and prompts before touching
  * data/applications.md — but its only input is data/reply-candidates.json.
  * paste-reply.mjs populates that file one email at a time, by hand.
  *

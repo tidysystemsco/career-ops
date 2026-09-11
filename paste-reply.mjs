@@ -5,9 +5,10 @@
  * classification pipeline (#1802).
  *
  * reply-watch.mjs already classifies employer replies (Interview / Responded /
- * Need Action / Rejected / Offer / Auto-confirmation / Noise / Unknown), matches
- * them to tracker rows, and prompts before touching data/applications.md — but
- * its only input is data/reply-candidates.json, and the only planned way to
+ * Need Action / Rejected / Offer / Auto-confirmation / Account Creation /
+ * Noise / Unknown), matches them to tracker rows, and prompts before touching
+ * data/applications.md — but its only input is data/reply-candidates.json, and
+ * the only planned way to
  * populate that file is a Gmail scanner (#1583, unbuilt, requires OAuth
  * inbox-read access). This script is the alternative for anyone who doesn't
  * want to grant any tool mailbox access but is willing to paste an email's

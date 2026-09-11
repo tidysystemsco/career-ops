@@ -15,7 +15,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { matchCandidates, classifyReply } from './reply-matcher.mjs';
+import * as yaml from 'js-yaml';
+import { matchCandidates, classifyReply, GMAIL_LABEL_CATEGORY_FOR_TYPE } from './reply-matcher.mjs';
 import { resolveColumns, parseTrackerRow } from './tracker-parse.mjs';
 import {
   openTrackerTransaction, rebuildRow, resolveTrackerPath,
@@ -27,6 +28,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CANDIDATES_PATH = path.join(__dirname, 'data', 'reply-candidates.json');
 const APPS_FILE = resolveTrackerPath(__dirname);
 const FOLLOWUPS_FILE = path.join(__dirname, 'data', 'follow-ups.md');
+const PROFILE_FILE = path.join(__dirname, 'config', 'profile.yml');
+
+// Optional per-user Gmail label ids (config/profile.yml's `gmail_labels:`
+// map, e.g. `applications: Label_21`). Gmail account label ids are user-layer
+// data — never hardcoded here — and the whole feature is opt-in: absent or
+// malformed config degrades silently to "no Gmail label suggestion printed",
+// the same way loadTrackerApps()/loadFollowups() degrade on a missing file,
+// rather than failing the whole digest over an unrelated optional feature.
+function loadGmailLabels() {
+  try {
+    if (!fs.existsSync(PROFILE_FILE)) return {};
+    const doc = yaml.load(fs.readFileSync(PROFILE_FILE, 'utf-8')) || {};
+    return (doc && typeof doc.gmail_labels === 'object' && doc.gmail_labels) || {};
+  } catch {
+    return {};
+  }
+}
 
 // Helper to ask a question in the CLI
 function askQuestion(query) {
@@ -240,6 +258,7 @@ async function main() {
 
   const apps = loadTrackerApps();
   const followups = loadFollowups();
+  const gmailLabels = loadGmailLabels();
 
   const matched = matchCandidates(candidates, apps, followups);
 
@@ -273,6 +292,16 @@ async function main() {
     }
 
     console.log(`   Suggested tracker update: ${classification.suggestedTrackerUpdate}`);
+
+    // Gmail label suggestion (opt-in, #3771): only prints when the type maps
+    // to a category AND that category is actually configured in this user's
+    // config/profile.yml gmail_labels map — a category with no configured id
+    // stays silent rather than printing a label the caller can't act on.
+    const labelCategory = GMAIL_LABEL_CATEGORY_FOR_TYPE[classification.type];
+    const labelId = labelCategory && gmailLabels[labelCategory];
+    if (labelId) {
+      console.log(`   Gmail label: ${labelId} (message_id: ${cand.message_id})`);
+    }
     console.log('');
 
     if (match.application_num !== null && classification.suggestedTrackerUpdate !== 'none' && classification.suggestedTrackerUpdate !== 'Needs Review') {

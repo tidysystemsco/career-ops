@@ -320,3 +320,19 @@ cover_letter:
 #     cross_role_bucket: "all_EM_roles"
 #     applied_to: ["Senior Software Engineer"]
 #     last_apply_date: "2026-01-01"
+
+# ── Gmail Labels (#3771) ────────────────────────────────────────────────────
+#
+# Maps reply-matcher.mjs's classification categories to YOUR Gmail account's
+# label ids, so reply-watch.mjs's digest can suggest which label to apply per
+# classified message (interview invite, rejection, application receipt,
+# account-creation/verification mail). Find your label ids by asking the
+# agent to list your Gmail labels, or create them first (e.g. "Job Search",
+# "Job Search/Applications", etc. — Gmail nests labels via "/" in the name).
+# Optional: a missing/unconfigured category is simply not suggested.
+#
+# gmail_labels:
+#   account_creation: Label_20
+#   applications: Label_21
+#   interviews_followups: Label_22
+#   rejections: Label_23
