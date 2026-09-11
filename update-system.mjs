@@ -506,6 +506,7 @@ const BOOTSTRAP_PATHS = [
  */
 export const USER_PATHS = [
   'cv.md',
+  'cv-trimmed.md',
   'config/profile.yml',
   'modes/_profile.md',
   'modes/_custom.md',
